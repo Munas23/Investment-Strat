@@ -1,0 +1,29 @@
+{
+    "strategy": {
+        "initial_capital": 100000,
+        "max_positions": 20,
+        "position_size": 0.05,
+        "entry_days": 20,
+        "exit_days": 10,
+        "momentum_filter_enabled": true,
+        "momentum_period_days": 126,
+        "momentum_threshold": 0.2,
+        "ranking_period_days": 20,
+        "commission_rate": 0.001
+    },
+    "backtest": {
+        "start_date": "2015-01-01",
+        "end_date": "2024-12-31"
+    },
+    "output": {
+        "save_trades": true,
+        "save_charts": true,
+        "chart_prefix": "turtle_sp500",
+        "trades_filename": "turtle_sp500_trades.csv"
+    },
+    "market": {
+        "name": "S&P 500",
+        "symbols_file": "data/sp500_symbols.csv",
+        "benchmark": "SPY"
+    }
+}

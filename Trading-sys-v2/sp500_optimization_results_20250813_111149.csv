@@ -1,0 +1,5 @@
+combination,parameters,final_value,total_return,total_trades,return_pct
+1,"{'flagpole_min_gain': 0.15, 'ma_fast': 5, 'ma_medium': 20, 'ma_slow': 60, 'consolidation_volatility_threshold': 0.3, 'max_stop_loss': 0.08, 'max_position_size': 0.15, 'volume_threshold': 1.1, 'near_highs_threshold': 0.85}",100000.0,0,0,0
+2,"{'flagpole_min_gain': 0.1, 'ma_fast': 3, 'ma_medium': 15, 'ma_slow': 50, 'consolidation_volatility_threshold': 0.4, 'max_stop_loss': 0.06, 'max_position_size': 0.2, 'volume_threshold': 1.0, 'near_highs_threshold': 0.9}",100000.0,0,0,0
+3,"{'flagpole_min_gain': 0.25, 'ma_fast': 8, 'ma_medium': 25, 'ma_slow': 80, 'consolidation_volatility_threshold': 0.2, 'max_stop_loss': 0.1, 'max_position_size': 0.1, 'volume_threshold': 1.2, 'near_highs_threshold': 0.8}",100000.0,0,0,0
+4,"{'flagpole_min_gain': 0.2, 'ma_fast': 10, 'ma_medium': 30, 'ma_slow': 100, 'consolidation_volatility_threshold': 0.5, 'max_stop_loss': 0.12, 'max_position_size': 0.25, 'volume_threshold': 1.3, 'near_highs_threshold': 0.95}",100000.0,0,0,0

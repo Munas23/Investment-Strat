@@ -1,0 +1,66 @@
+{
+    "default_parameters": {
+        "initial_capital": 100000,
+        "commission": 0.001,
+        "slippage": 0.0005,
+        "min_price": 1.0,
+        "max_position_size": 0.10,
+        "max_positions": 20,
+        "risk_per_trade": 0.02,
+        "lookback_period": 252
+    },
+    
+    "strategy_types": {
+        "momentum": {
+            "description": "Momentum-based strategies",
+            "parameters": {
+                "momentum_period": 20,
+                "entry_threshold": 0.05,
+                "exit_threshold": -0.02
+            }
+        },
+        "mean_reversion": {
+            "description": "Mean reversion strategies", 
+            "parameters": {
+                "lookback_period": 20,
+                "deviation_threshold": 2.0,
+                "exit_threshold": 0.5
+            }
+        },
+        "breakout": {
+            "description": "Breakout strategies",
+            "parameters": {
+                "breakout_period": 20,
+                "volume_threshold": 1.5,
+                "atr_multiple": 2.0
+            }
+        },
+        "turtle": {
+            "description": "Turtle trading strategies",
+            "parameters": {
+                "entry_period": 20,
+                "exit_period": 10,
+                "atr_period": 20,
+                "atr_multiple": 2.0
+            }
+        }
+    },
+    
+    "risk_management": {
+        "position_sizing": {
+            "method": "fixed_fractional",
+            "risk_per_trade": 0.02,
+            "max_portfolio_risk": 0.20
+        },
+        "stop_loss": {
+            "method": "atr_based",
+            "atr_multiple": 2.0,
+            "max_loss_percent": 0.08
+        },
+        "take_profit": {
+            "method": "trailing_stop",
+            "trail_percent": 0.10,
+            "min_profit_threshold": 0.15
+        }
+    }
+}

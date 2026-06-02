@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(python download_the_csv.py:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(Select-String -Pattern \"IJR|Debug\" -Context 0,1)",
+      "Bash(findstr:*)"
+    ]
+  }
+}

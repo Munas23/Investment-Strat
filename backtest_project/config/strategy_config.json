@@ -1,0 +1,39 @@
+{
+    "market": {
+        "name": "S&P 500",
+        "symbols_file": "data/sp500_symbols.csv",
+        "benchmark": "SPY"
+    },
+    "strategy": {
+        "initial_capital": 100000,
+        "max_units_single_market": 4,
+        "max_units_closely_correlated": 6,
+        "max_units_loosely_correlated": 10,
+        "max_units_single_direction": 12,
+        "risk_per_unit": 0.01,
+        "stop_loss_n": 2.0,
+        "unit_addition_n": 0.5,
+        "system1_entry_days": 20,
+        "system1_exit_days": 10,
+        "system2_entry_days": 55,
+        "system2_exit_days": 20,
+        "use_system1": true,
+        "use_system2": true,
+        "system_allocation": 0.5,
+        "n_period": 20,
+        "momentum_filter_enabled": false,
+        "momentum_period_days": 126,
+        "momentum_threshold": 0.2,
+        "commission_rate": 0.001
+    },
+    "backtest": {
+        "start_date": "2015-01-01",
+        "end_date": "2024-12-31"
+    },
+    "output": {
+        "save_trades": true,
+        "save_charts": true,
+        "chart_prefix": "turtle",
+        "trades_filename": "turtle_trades.csv"
+    }
+}

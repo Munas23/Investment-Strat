@@ -1,0 +1,12 @@
+# Trading System Requirements
+# Position Sizing Calculator + Backtesting System
+
+# Core Data Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Market Data
+yfinance>=0.2.28
+
+# Utilities
+python-dateutil>=2.8.2

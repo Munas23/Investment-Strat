@@ -1,0 +1,69 @@
+Metric,VAS.AX,Strategy
+Risk-Free Rate,5.24%,5.24%
+Time in Market,69.0%,70.0%
+,,
+Total Return,115%,192%
+CAGR% (Annual Return),7.98%,11.36%
+,,
+Sharpe,0.25,0.45
+RoMaD,0.22,0.48
+Corr to Benchmark,1.0,0.32
+Prob. Sharpe Ratio,9.83%,25.14%
+Smart Sharpe,0.24,0.43
+Sortino,0.33,0.64
+Smart Sortino,0.32,0.61
+Sortino/√2,0.24,0.45
+Smart Sortino/√2,0.23,0.43
+Omega,1.08,1.08
+,,
+Max Drawdown,-35.75%,-23.49%
+Longest DD Days,626,787
+Volatility (ann.),15.05%,15.11%
+R^2,0.1,0.1
+Information Ratio,0.01,0.01
+Calmar,0.22,0.48
+Skew,-0.89,-0.22
+Kurtosis,12.38,4.67
+,,
+Expected Daily%,0.02%,0.03%
+Expected Monthly%,0.63%,0.89%
+Expected Yearly%,7.21%,10.24%
+Daily Value-at-Risk,-1.27%,-1.27%
+Expected Shortfall (cVaR),-1.27%,-1.27%
+,,
+MTD,0.0%,-0.55%
+3M,8.55%,4.18%
+6M,7.45%,-2.07%
+YTD,0.0%,-0.55%
+1Y,12.06%,-0.14%
+3Y (ann.),8.36%,1.23%
+5Y (ann.),9.66%,8.23%
+10Y (ann.),7.98%,11.36%
+All-time (ann.),7.98%,11.36%
+,,
+Best Day,5.98%,5.54%
+Worst Day,-7.72%,-4.92%
+Best Month,11.48%,15.64%
+Worst Month,-18.39%,-8.23%
+Best Year,23.83%,42.22%
+Worst Year,-3.06%,-7.77%
+,,
+Avg. Drawdown,-2.21%,-2.73%
+Avg. Drawdown Days,32,35
+Recovery Factor,2.46,5.05
+Ulcer Index,0.07,0.07
+Serenity Index,0.71,0.88
+,,
+Avg. Up Month,3.3%,3.88%
+Avg. Down Month,-3.08%,-4.14%
+Win Days,2000.31,1941.97
+Loss Days,1642.69,1701.03
+Win Days%,54.91%,53.31%
+Win Month%,61.67%,61.98%
+Win Quarter%,75.0%,65.85%
+Win Year%,80.0%,81.82%
+,,
+Beta,-,0.32
+Alpha,-,0.09
+Correlation,-,31.66%
+Treynor Ratio,-,588.23%

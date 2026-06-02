@@ -1,0 +1,3 @@
+scan_date,data_date,symbol,ib_action,conviction_level,position_size_pct,current_price,stop_loss_price,profit_target_price,daily_change_pct,volume,avg_volume_20d,conviction_reason,trend_strength,breakout_power,volume_surge,momentum_points,total_conviction_score
+2025-08-21,253,WBC.AX,BUY,2,25,38.720001220703125,36.00960113525391,58.08000183105469,1.2817203356893625,3959330,4581974.35,"LOW conviction: 45, trend: 100, vol: 0.9x, daily: 1.3%",100,0,0.8686928289405107,25,45
+2025-08-21,253,ANZ.AX,BUY,2,25,33.869998931884766,31.499099006652834,50.80499839782715,1.3768305494568533,3106911,5552170.85,"LOW conviction: 45, trend: 100, vol: 0.5x, daily: 1.4%",100,0,0.546279353883696,25,45

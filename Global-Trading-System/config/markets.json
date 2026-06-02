@@ -1,0 +1,69 @@
+{
+    "markets": {
+        "SP500": {
+            "name": "S&P 500",
+            "currency": "USD",
+            "timezone": "America/New_York",
+            "market_hours": {
+                "open": "09:30",
+                "close": "16:00"
+            },
+            "benchmark": "SPY",
+            "data_source": "yahoo",
+            "symbol_suffix": "",
+            "trading_calendar": "NYSE"
+        },
+        "ASX300": {
+            "name": "ASX 300",
+            "currency": "AUD", 
+            "timezone": "Australia/Sydney",
+            "market_hours": {
+                "open": "10:00",
+                "close": "16:00"
+            },
+            "benchmark": "VAS.AX",
+            "data_source": "yahoo",
+            "symbol_suffix": ".AX",
+            "trading_calendar": "ASX"
+        },
+        "RUSSELL2000": {
+            "name": "Russell 2000",
+            "currency": "USD",
+            "timezone": "America/New_York", 
+            "market_hours": {
+                "open": "09:30",
+                "close": "16:00"
+            },
+            "benchmark": "IWM",
+            "data_source": "yahoo",
+            "symbol_suffix": "",
+            "trading_calendar": "NYSE"
+        },
+        "FTSE": {
+            "name": "FTSE 100",
+            "currency": "GBP",
+            "timezone": "Europe/London",
+            "market_hours": {
+                "open": "08:00", 
+                "close": "16:30"
+            },
+            "benchmark": "^FTSE",
+            "data_source": "yahoo",
+            "symbol_suffix": ".L",
+            "trading_calendar": "LSE"
+        },
+        "DAX": {
+            "name": "DAX",
+            "currency": "EUR",
+            "timezone": "Europe/Berlin",
+            "market_hours": {
+                "open": "09:00",
+                "close": "17:30"
+            },
+            "benchmark": "^GDAXI",
+            "data_source": "yahoo", 
+            "symbol_suffix": ".DE",
+            "trading_calendar": "XETR"
+        }
+    }
+}
