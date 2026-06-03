@@ -1,0 +1,45 @@
+# Python dependencies for Investment-Strat-clean
+# Detected from imports across the codebase (June 2026).
+#
+# Versions are intentionally UNPINNED here. To lock them to exactly what
+# you have working, run this in your activated venv and commit the result:
+#     pip freeze > requirements.lock.txt
+#
+# Note: TA-Lib requires the underlying C library to be installed first.
+#   Windows: pip install TA-Lib   (or a prebuilt wheel)
+#   See https://github.com/TA-Lib/ta-lib-python for details.
+
+# --- Core data / numerics ---
+pandas
+numpy
+
+# --- Market data ---
+yfinance
+
+# --- Backtesting & strategy frameworks ---
+lumibot
+vectorbt
+backtesting
+
+# --- Technical analysis ---
+TA-Lib
+pandas-ta
+
+# --- Statistics ---
+statsmodels
+
+# --- Brokerage / live trading (Interactive Brokers) ---
+ib_insync
+
+# --- Plotting / reporting ---
+matplotlib
+seaborn
+plotly
+reportlab
+
+# --- Web / scraping ---
+requests
+beautifulsoup4
+
+# --- Scheduling ---
+schedule
