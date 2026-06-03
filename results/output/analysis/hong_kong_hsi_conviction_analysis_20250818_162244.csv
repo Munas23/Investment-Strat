@@ -1,0 +1,4 @@
+entries,expected_position_size,avg_trade_pnl,win_rate,avg_win,avg_loss,total_trades,symbols,market,conviction_level
+74,20%,,0.0,0,0,106,10,Hong Kong HSI,1.0
+26,25%,,0.0,0,0,106,9,Hong Kong HSI,2.0
+7,30%,,0.0,0,0,106,6,Hong Kong HSI,3.0

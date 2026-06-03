@@ -1,0 +1,16 @@
+Date,Ticker,Company_Name,Market,Time,Expected_EPS,Expected_Revenue,Notes
+2025-08-25,PANW,Palo Alto Networks Inc,US,After Close,,,
+2025-08-25,BHP,BHP Group Limited,ASX,,,,"Australian mining company"
+2025-08-25,WDS,Woodside Energy Group Ltd,ASX,,,,"Australian energy company"
+2025-08-26,MDT,Medtronic PLC,US,Before Open,,,
+2025-08-26,HD,The Home Depot Inc,US,Before Open,,,
+2025-08-26,ZTO,ZTO Express (Cayman) Inc,US,Before Open,,,
+2025-08-27,NVDA,NVIDIA Corporation,US,After Close,,,"Major AI/GPU company - high impact"
+2025-08-27,RY,Royal Bank of Canada,US,Before Open,$2.31,$16.03B,"Canadian bank - confirmed estimates"
+2025-08-27,TJX,TJX Companies Inc,US,Before Open,,,
+2025-08-27,LOW,Lowe's Companies Inc,US,Before Open,,,
+2025-08-27,ADI,Analog Devices Inc,US,After Close,,,
+2025-08-28,WMT,Walmart Inc,US,Before Open,,,"Major retailer - high impact"
+2025-08-28,WDAY,Workday Inc,US,After Close,,,
+2025-08-28,INTU,Intuit Inc,US,After Close,,,
+2025-08-29,TBD,Various ASX Companies,ASX,,,,"Multiple ASX companies expected - peak reporting week"

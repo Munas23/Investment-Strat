@@ -1,0 +1,4 @@
+market,status,currency,time_taken_seconds,benchmark,universe,error
+UK,SUCCESS,GBP,1245.5438997745514,VUKE.L (FTSE 100 ETF),FTSE 100/250 major stocks,
+Germany,SUCCESS,EUR,1050.239676475525,EXS1.DE (EURO STOXX 50 ETF),DAX major stocks,
+Hong Kong,SUCCESS,HKD,1120.9591228961945,2800.HK (Tracker Fund),HSI major stocks,

@@ -1,0 +1,25 @@
+================================================================================
+5-LEVEL CONVICTION STRATEGY - VECTORBT VALIDATION REPORT
+================================================================================
+Validation Date: 20250818_181016
+Report Generated: 2025-08-18 18:10:23
+
+VALIDATION SUMMARY
+----------------------------------------
+Markets Tested: 2
+Successful Validations: 0
+Success Rate: 0.0%
+Markets Validated: 
+
+MARKET VALIDATION RESULTS
+----------------------------------------
+
+RECOMMENDATIONS
+----------------------------------------
+ERROR: Validation failed for both markets
+ACTION: Review VectorBT implementations for technical issues
+ACTION: Check data quality and market filters
+
+================================================================================
+END OF VALIDATION REPORT
+================================================================================

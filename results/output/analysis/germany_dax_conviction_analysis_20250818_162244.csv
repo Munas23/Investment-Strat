@@ -1,0 +1,5 @@
+entries,expected_position_size,avg_trade_pnl,win_rate,avg_win,avg_loss,total_trades,symbols,market,conviction_level
+66,20%,,0.0,0,0,86,6,Germany DAX,1.0
+19,25%,,0.0,0,0,86,5,Germany DAX,2.0
+5,30%,,0.0,0,0,86,2,Germany DAX,3.0
+1,35%,,0.0,0,0,86,1,Germany DAX,4.0

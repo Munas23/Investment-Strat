@@ -1,0 +1,5 @@
+entries,expected_position_size,avg_trade_pnl,win_rate,avg_win,avg_loss,total_trades,symbols,market,conviction_level
+149,20%,,0.0,0,0,272,8,ASX300,1.0
+100,25%,,0.0,0,0,272,8,ASX300,2.0
+25,30%,,0.0,0,0,272,6,ASX300,3.0
+10,35%,,0.0,0,0,272,3,ASX300,4.0

@@ -1,0 +1,10 @@
+Date,Ticker,Company_Name,Market,Time,Market_Cap,Sector,Industry,Expected_EPS,Previous_EPS,PE_Ratio,Revenue_TTM,Currency
+2025-08-25,PANW,Palo Alto Networks Inc,US,After Close,0,Technology,Cybersecurity,,,,0.0,USD
+2025-08-26,HD,The Home Depot Inc,US,Before Open,0,Consumer Discretionary,Home Improvement Retail,,,,0.0,USD
+2025-08-26,MDT,Medtronic PLC,US,Before Open,0,Healthcare,Medical Devices,,,,0.0,USD
+2025-08-27,LOW,Lowe's Companies Inc,US,Before Open,0,Consumer Discretionary,Home Improvement Retail,,,,0.0,USD
+2025-08-27,NVDA,NVIDIA Corporation,US,After Close,0,Technology,Semiconductors - AI/GPU,,,,0.0,USD
+2025-08-27,RY,Royal Bank of Canada,US,Before Open,0,Financial Services,Banks,2.31,,,16034900000.0,CAD
+2025-08-27,TJX,TJX Companies Inc,US,Before Open,0,Consumer Discretionary,Discount Retail,,,,0.0,USD
+2025-08-28,INTU,Intuit Inc,US,After Close,0,Technology,Software - Application,,,,0.0,USD
+2025-08-28,WMT,Walmart Inc,US,Before Open,0,Consumer Staples,Discount Stores,,,,0.0,USD

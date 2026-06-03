@@ -1,0 +1,5 @@
+entries,expected_position_size,avg_trade_pnl,win_rate,avg_win,avg_loss,total_trades,symbols,market,conviction_level
+239,20%,,0.0,0,0,394,14,S&P 500,1.0
+143,25%,,0.0,0,0,394,14,S&P 500,2.0
+32,30%,,0.0,0,0,394,13,S&P 500,3.0
+12,35%,,0.0,0,0,394,9,S&P 500,4.0
