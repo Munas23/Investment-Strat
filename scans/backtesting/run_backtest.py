@@ -99,6 +99,59 @@ SYSTEMS = {
 }
 
 
+# Map a universe name to its symbol file and buy-and-hold benchmark ticker.
+# Symbol files live in ../../backtesting/data/. 'broad' is the default
+# IVV+IJR (S&P 500 + S&P 600) universe loaded by load_initial_universe().
+UNIVERSES = {
+    'sp500':       {'file': 'sp500_symbols.csv',       'benchmark': 'SPY'},
+    'russell1000': {'file': 'russell1000_symbols.csv', 'benchmark': 'IWB'},
+    'nasdaq100':   {'file': 'nasdaq100_symbols.csv',   'benchmark': 'QQQ'},
+    'asx300':      {'file': 'asx300_symbols.csv',      'benchmark': '^AXJO'},
+    'ftse100':     {'file': 'ftse100_symbols.csv',     'benchmark': '^FTSE'},
+}
+
+# Named test windows (the plan asks for a 2022 bear stress window and a
+# strong-bull window alongside the full period).
+PERIODS = {
+    'full':      ('2020-01-01', '2024-12-31'),
+    'bear2022':  ('2022-01-01', '2022-12-31'),
+    'bull2021':  ('2021-01-01', '2021-12-31'),
+}
+
+DATA_DIR = Path(__file__).parent.parent.parent / 'backtesting' / 'data'
+
+
+def load_universe_symbols(universe: str) -> List[str]:
+    """Load the symbol list for a named universe from backtesting/data/."""
+    if universe == 'broad':
+        return load_initial_universe()
+    if universe not in UNIVERSES:
+        print(f"ERROR: unknown universe '{universe}'. "
+              f"Choices: {', '.join(['broad'] + list(UNIVERSES))}")
+        return []
+    fpath = DATA_DIR / UNIVERSES[universe]['file']
+    if not fpath.exists():
+        print(f"ERROR: symbol file not found: {fpath}")
+        return []
+    df = pd.read_csv(fpath)
+    col = df.columns[0]
+    symbols = [str(s).strip() for s in df[col].dropna() if str(s).strip()]
+    print(f"Loaded {len(symbols)} symbols for universe '{universe}'")
+    return symbols
+
+
+def resolve_period(period: str) -> tuple:
+    """Resolve a period name or 'START:END' string into (start, end) dates."""
+    if period in PERIODS:
+        return PERIODS[period]
+    if ':' in period:
+        start, end = period.split(':', 1)
+        return start.strip(), end.strip()
+    raise ValueError(
+        f"Bad --period '{period}'. Use a name {list(PERIODS)} or 'YYYY-MM-DD:YYYY-MM-DD'."
+    )
+
+
 def load_initial_universe() -> List[str]:
     """
     Load the full broad universe from IVV (S&P 500) and IJR (S&P 600) holdings.
@@ -139,7 +192,10 @@ def run_simple_backtest(
     system_config: dict,
     symbols: List[str],
     start_date: str = '2020-01-01',
-    end_date: str = '2024-12-31'
+    end_date: str = '2024-12-31',
+    universe_label: str = 'broad',
+    period_label: str = 'full',
+    benchmark_symbol: str = 'SPY',
 ) -> PerformanceMetrics:
     """
     Run a backtest with PROPER HISTORICAL SCREENING (no lookahead bias).
@@ -234,7 +290,7 @@ def run_simple_backtest(
         # Skip new entries in bear market (price below 200MA) for risk control
         if market_health == 'bear':
             engine.check_exits(date, price_data)
-            engine.update_equity_curve(date)
+            engine.update_equity_curve(date, price_data)
             continue
 
         # ── Daily technical scan on the fundamental universe ─────────────────
@@ -289,7 +345,7 @@ def run_simple_backtest(
 
         # ── Daily exit management ────────────────────────────────────────────
         engine.check_exits(date, price_data)
-        engine.update_equity_curve(date)
+        engine.update_equity_curve(date, price_data)
 
     # Close remaining open positions at end of period
     for trade in engine.open_trades[:]:
@@ -306,6 +362,16 @@ def run_simple_backtest(
 
     # Save results
     engine.save_results(system_config['name'].replace(' ', '_'))
+
+    # Append a standardized row to the shared scorecard
+    _, benchmark_cagr = engine.calculate_benchmark_return(benchmark_symbol)
+    engine.append_scorecard(
+        strategy=system_config['name'],
+        universe=universe_label,
+        period=f"{start_date}:{end_date}" if period_label == 'custom' else period_label,
+        metrics=metrics,
+        benchmark_cagr=benchmark_cagr,
+    )
 
     return metrics
 
@@ -356,10 +422,29 @@ def print_metrics(system_name: str, metrics: PerformanceMetrics, benchmark_cagr:
     print(f"{'='*80}\n")
 
 
+# Map a strategy slug (for --strategy) to a system number.
+STRATEGY_SLUGS = {
+    'minervini':      1,
+    'turtle':         2,
+    'qullamaggie':    3,
+    'hybrid':         4,
+    'highconviction': 5,
+}
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Run trading system backtests')
-    parser.add_argument('--system', type=int, choices=[1,2,3,4,5], help='System number to test')
+    parser.add_argument('--system', type=int, choices=[1, 2, 3, 4, 5],
+                        help='System number to test (1-5)')
+    parser.add_argument('--strategy', choices=list(STRATEGY_SLUGS),
+                        help='Strategy by name (alias for --system)')
+    parser.add_argument('--universe', default='broad',
+                        choices=['broad'] + list(UNIVERSES),
+                        help='Universe to trade (default: broad = IVV+IJR)')
+    parser.add_argument('--period', default='full',
+                        help="Named window (full, bear2022, bull2021) "
+                             "or 'YYYY-MM-DD:YYYY-MM-DD'")
     parser.add_argument('--all', action='store_true', help='Run all systems')
     parser.add_argument('--compare', action='store_true', help='Compare existing results')
 
@@ -369,35 +454,49 @@ def main():
         print("Comparison feature coming soon...")
         return
 
-    # Load initial symbol universe
-    print("Loading symbol universe from screening results...")
-    symbols = load_initial_universe()
+    # Resolve period
+    try:
+        START_DATE, END_DATE = resolve_period(args.period)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        return
+    period_label = args.period if (args.period in PERIODS) else 'custom'
+
+    # Resolve universe + benchmark
+    universe_label = args.universe
+    benchmark_symbol = UNIVERSES.get(universe_label, {}).get('benchmark', 'SPY')
+
+    # Load symbol universe
+    print(f"Loading universe '{universe_label}' ...")
+    symbols = load_universe_symbols(universe_label)
 
     if not symbols:
-        print("ERROR: No symbols loaded. Run screeners first.")
+        print("ERROR: No symbols loaded.")
         return
 
-    # Backtest dates
-    START_DATE = '2020-01-01'
-    END_DATE = '2024-12-31'
-
-    # Calculate benchmark (SPY buy-and-hold)
+    # Calculate benchmark buy-and-hold
     print("\n" + "="*80)
-    print("BENCHMARK: SPY Buy-and-Hold")
+    print(f"BENCHMARK: {benchmark_symbol} Buy-and-Hold ({START_DATE} to {END_DATE})")
     print("="*80)
     temp_engine = BacktestEngine(account_size=2_000_000, start_date=START_DATE, end_date=END_DATE)
-    benchmark_return, benchmark_cagr = temp_engine.calculate_benchmark_return('SPY')
-    print(f"SPY Total Return: {benchmark_return:.2f}%")
-    print(f"SPY CAGR:         {benchmark_cagr:.2f}%")
-    print(f"\nYour systems need to beat {benchmark_cagr:.2f}% CAGR to outperform SPY!")
+    benchmark_return, benchmark_cagr = temp_engine.calculate_benchmark_return(benchmark_symbol)
+    print(f"{benchmark_symbol} Total Return: {benchmark_return:.2f}%")
+    print(f"{benchmark_symbol} CAGR:         {benchmark_cagr:.2f}%")
+    print(f"\nYour systems need to beat {benchmark_cagr:.2f}% CAGR to outperform.")
     print("="*80)
+
+    # Resolve --strategy slug into a system number
+    if args.strategy and not args.system:
+        args.system = STRATEGY_SLUGS[args.strategy]
 
     if args.all:
         # Run all systems
         results = {}
         for sys_num in [1, 2, 3, 4, 5]:
             config = SYSTEMS[sys_num]
-            metrics = run_simple_backtest(config, symbols, START_DATE, END_DATE)
+            metrics = run_simple_backtest(
+                config, symbols, START_DATE, END_DATE,
+                universe_label, period_label, benchmark_symbol)
             results[config['name']] = metrics
             print_metrics(config['name'], metrics, benchmark_cagr)
 
@@ -439,7 +538,9 @@ def main():
     elif args.system:
         # Run single system
         config = SYSTEMS[args.system]
-        metrics = run_simple_backtest(config, symbols, START_DATE, END_DATE)
+        metrics = run_simple_backtest(
+            config, symbols, START_DATE, END_DATE,
+            universe_label, period_label, benchmark_symbol)
         print_metrics(config['name'], metrics, benchmark_cagr)
 
     else:

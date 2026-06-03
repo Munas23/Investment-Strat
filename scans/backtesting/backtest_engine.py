@@ -69,6 +69,7 @@ class PerformanceMetrics:
     max_drawdown_dollars: float
     sharpe_ratio: float
     sortino_ratio: float
+    calmar_ratio: float
 
     # Trade statistics
     total_trades: int
@@ -93,6 +94,8 @@ class PerformanceMetrics:
     avg_holding_days: float
     max_positions_held: int
     avg_position_size_pct: float
+    exposure_pct: float        # % of days with at least one open position
+    turnover: float            # total traded $ volume / initial capital
 
     # System health
     max_consecutive_losses: int
@@ -510,17 +513,58 @@ class BacktestEngine:
                 continue
 
 
-    def update_equity_curve(self, date: pd.Timestamp):
+    def _mark_to_market_value(
+        self,
+        trade: Trade,
+        date: pd.Timestamp,
+        price_data: Optional[Dict[str, pd.DataFrame]]
+    ) -> float:
+        """
+        Current market value of an open position.
+
+        Uses the latest available close on/before `date`. Falls back to the
+        entry value (position_value) only if no price is available, so the
+        equity curve never silently freezes.
+        """
+        if price_data and trade.symbol in price_data:
+            df = price_data[trade.symbol]
+            available = df.index[df.index <= date]
+            if not available.empty:
+                current_price = df.loc[available[-1], 'close']
+                if not pd.isna(current_price):
+                    return trade.shares * current_price
+        return trade.position_value
+
+    def update_equity_curve(
+        self,
+        date: pd.Timestamp,
+        price_data: Optional[Dict[str, pd.DataFrame]] = None
+    ):
         """
         Update equity curve with current portfolio value.
 
+        Open positions are MARKED TO MARKET at the latest available close so the
+        equity curve reflects unrealised P&L day by day. Without this, Sharpe,
+        Sortino and max-drawdown are all computed on a near-flat curve and are
+        meaningless. `price_data` should be the same dict used for exits.
+
         Args:
             date: Current date
+            price_data: symbol -> OHLCV DataFrame, for marking positions to market
         """
-        # Get value of open positions
-        open_value = sum(trade.position_value for trade in self.open_trades)
+        # Mark-to-market value of open positions
+        open_value = sum(
+            self._mark_to_market_value(trade, date, price_data)
+            for trade in self.open_trades
+        )
 
         total_equity = self.current_capital + open_value
+
+        # Hard invariant: cash must never go negative (no implicit leverage).
+        assert self.current_capital >= -1e-6, (
+            f"Negative cash on {date.date()}: ${self.current_capital:,.2f} — "
+            f"cash constraint violated (implicit leverage)."
+        )
 
         self.equity_curve.append({
             'date': date,
@@ -602,12 +646,13 @@ class BacktestEngine:
             return PerformanceMetrics(
                 total_return_pct=0, total_return_dollars=0, cagr=0,
                 max_drawdown_pct=0, max_drawdown_dollars=0,
-                sharpe_ratio=0, sortino_ratio=0,
+                sharpe_ratio=0, sortino_ratio=0, calmar_ratio=0,
                 total_trades=0, winning_trades=0, losing_trades=0, win_rate=0,
                 avg_win_pct=0, avg_loss_pct=0, avg_win_dollars=0, avg_loss_dollars=0,
                 largest_win_pct=0, largest_loss_pct=0, profit_factor=0,
                 avg_r_multiple=0, expectancy=0,
                 avg_holding_days=0, max_positions_held=0, avg_position_size_pct=0,
+                exposure_pct=0, turnover=0,
                 max_consecutive_losses=0, recovery_days=0
             )
 
@@ -624,11 +669,14 @@ class BacktestEngine:
         years = (self.end_date - self.start_date).days / 365.25
         cagr = ((final_equity / self.initial_capital) ** (1 / years) - 1) * 100
 
-        # Max drawdown
+        # Max drawdown — measured against the running peak at each point in
+        # time (standard definition), not the global peak. Dividing by the
+        # global peak understates the worst drawdown.
         rolling_max = eq_df['equity'].expanding().max()
         drawdown = eq_df['equity'] - rolling_max
         max_drawdown_dollars = drawdown.min()
-        max_drawdown_pct = (max_drawdown_dollars / rolling_max.max()) * 100
+        drawdown_pct_series = drawdown / rolling_max
+        max_drawdown_pct = drawdown_pct_series.min() * 100
 
         # Trade statistics
         wins = [t for t in self.closed_trades if t.pnl_dollars > 0]
@@ -667,6 +715,21 @@ class BacktestEngine:
         downside_returns = excess_returns[excess_returns < 0]
         sortino_ratio = (excess_returns.mean() / downside_returns.std() * np.sqrt(252)) if len(downside_returns) > 0 and downside_returns.std() > 0 else 0
 
+        # Calmar ratio = CAGR / |max drawdown| (risk-adjusted return that the
+        # plan flags as the key bake-off metric)
+        calmar_ratio = (cagr / abs(max_drawdown_pct)) if max_drawdown_pct != 0 else 0
+
+        # Exposure = fraction of trading days with at least one open position
+        exposure_pct = (eq_df['open_positions'] > 0).mean() * 100
+
+        # Turnover = total traded notional / initial capital (entries + exits)
+        traded_notional = sum(t.position_value for t in self.closed_trades)
+        traded_notional += sum(
+            (t.shares * t.exit_price) for t in self.closed_trades
+            if t.exit_price is not None
+        )
+        turnover = traded_notional / self.initial_capital if self.initial_capital > 0 else 0
+
         # Position statistics
         holding_days = [t.holding_days for t in self.closed_trades if t.holding_days]
         avg_holding_days = np.mean(holding_days) if holding_days else 0
@@ -703,6 +766,7 @@ class BacktestEngine:
             max_drawdown_dollars=round(max_drawdown_dollars, 2),
             sharpe_ratio=round(sharpe_ratio, 2),
             sortino_ratio=round(sortino_ratio, 2),
+            calmar_ratio=round(calmar_ratio, 2),
             total_trades=total_trades,
             winning_trades=winning_trades,
             losing_trades=losing_trades,
@@ -719,6 +783,8 @@ class BacktestEngine:
             avg_holding_days=round(avg_holding_days, 1),
             max_positions_held=int(max_positions_held),
             avg_position_size_pct=round(avg_position_size_pct, 2),
+            exposure_pct=round(exposure_pct, 2),
+            turnover=round(turnover, 2),
             max_consecutive_losses=max_consecutive,
             recovery_days=recovery_days
         )
@@ -757,3 +823,56 @@ class BacktestEngine:
         with open(metrics_file, 'w') as f:
             json.dump(asdict(metrics), f, indent=2)
         print(f"Metrics saved to {metrics_file}")
+
+
+    def append_scorecard(
+        self,
+        strategy: str,
+        universe: str,
+        period: str,
+        metrics: Optional[PerformanceMetrics] = None,
+        benchmark_cagr: float = 0.0,
+        scorecard_path: str = 'results/scorecard.csv',
+    ):
+        """
+        Append one standardized row to the shared scorecard.
+
+        This is the single comparable record every strategy/universe/period run
+        emits, so the Phase 2 bake-off can rank candidates fairly. One row per
+        run; the file accumulates across runs.
+        """
+        if metrics is None:
+            metrics = self.calculate_metrics()
+
+        row = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'strategy': strategy,
+            'universe': universe,
+            'period': period,
+            'cagr': metrics.cagr,
+            'benchmark_cagr': round(benchmark_cagr, 2),
+            'alpha': round(metrics.cagr - benchmark_cagr, 2),
+            'sharpe': metrics.sharpe_ratio,
+            'sortino': metrics.sortino_ratio,
+            'calmar': metrics.calmar_ratio,
+            'max_drawdown_pct': metrics.max_drawdown_pct,
+            'win_rate': metrics.win_rate,
+            'avg_win_pct': metrics.avg_win_pct,
+            'avg_loss_pct': metrics.avg_loss_pct,
+            'profit_factor': metrics.profit_factor,
+            'avg_r_multiple': metrics.avg_r_multiple,
+            'exposure_pct': metrics.exposure_pct,
+            'turnover': metrics.turnover,
+            'total_trades': metrics.total_trades,
+        }
+
+        path = Path(scorecard_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        new_df = pd.DataFrame([row])
+        if path.exists():
+            existing = pd.read_csv(path)
+            combined = pd.concat([existing, new_df], ignore_index=True)
+        else:
+            combined = new_df
+        combined.to_csv(path, index=False)
+        print(f"Scorecard row appended to {path}")
