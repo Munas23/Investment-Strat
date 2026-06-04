@@ -95,7 +95,55 @@ SYSTEMS = {
         'exit_method': 'let_run',
         'min_fundamental': 75,
         'min_rs_rating': 90,
-    }
+    },
+    # ------------------------------------------------------------------
+    # Real strategy families (the three canonical systems being compared)
+    # ------------------------------------------------------------------
+    6: {
+        'name': 'VCP (Volatility Contraction Pattern)',
+        'system_id': 6,
+        'base_risk': 1.0,
+        # VCP entries skew high-conviction; level 3 allowed as a catch-all
+        'conviction_multipliers': {5: 1.5, 4: 1.0, 3: 0.75},
+        'min_conviction': 3,
+        'max_positions': 8,
+        'max_total_risk': 12.0,
+        # ATR-based stop placed below the VCP base low
+        'stop_method': 'atr',
+        'atr_multipliers': {5: 1.5, 4: 2.0, 3: 2.5},
+        'exit_method': 'scaled',
+        'min_fundamental': 65,
+    },
+    7: {
+        'name': 'Conviction (Pure Technical)',
+        'system_id': 7,
+        'base_risk': 1.5,
+        'conviction_multipliers': {5: 1.5, 4: 1.25, 3: 1.0, 2: 0.75},
+        'min_conviction': 3,
+        'max_positions': 15,
+        'max_total_risk': 20.0,
+        # Momentum strategy — trail out over time
+        'stop_method': 'atr',
+        'atr_multipliers': {5: 1.5, 4: 2.0, 3: 2.5},
+        'exit_method': 'time_trail',
+        'min_fundamental': 50,   # No fundamental gate in the scorer; harness still applies a minimum
+    },
+    8: {
+        'name': '5LC (5-Level Conviction)',
+        'system_id': 8,
+        'base_risk': 1.5,
+        # Wider sizing spread: high-conviction entries get proportionally more
+        'conviction_multipliers': {5: 2.0, 4: 1.5, 3: 1.0, 2: 0.75},
+        'min_conviction': 3,
+        'max_positions': 12,
+        'max_total_risk': 18.0,
+        # 7% stop as per the 5LC strategy spec
+        'stop_method': 'percentage',
+        'stop_percent': 7,
+        'exit_method': 'scaled',
+        # Fundamental quality already enforced upstream; keep a sensible floor
+        'min_fundamental': 65,
+    },
 }
 
 
@@ -196,6 +244,7 @@ def run_simple_backtest(
     universe_label: str = 'broad',
     period_label: str = 'full',
     benchmark_symbol: str = 'SPY',
+    scorecard_path: str = 'results/scorecard.csv',
 ) -> PerformanceMetrics:
     """
     Run a backtest with PROPER HISTORICAL SCREENING (no lookahead bias).
@@ -371,6 +420,7 @@ def run_simple_backtest(
         period=f"{start_date}:{end_date}" if period_label == 'custom' else period_label,
         metrics=metrics,
         benchmark_cagr=benchmark_cagr,
+        scorecard_path=scorecard_path,
     )
 
     return metrics
@@ -424,19 +474,24 @@ def print_metrics(system_name: str, metrics: PerformanceMetrics, benchmark_cagr:
 
 # Map a strategy slug (for --strategy) to a system number.
 STRATEGY_SLUGS = {
+    # Original sizing presets (control group)
     'minervini':      1,
     'turtle':         2,
     'qullamaggie':    3,
     'hybrid':         4,
     'highconviction': 5,
+    # Real strategy families
+    'vcp':            6,
+    'conviction':     7,
+    '5lc':            8,
 }
 
 
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Run trading system backtests')
-    parser.add_argument('--system', type=int, choices=[1, 2, 3, 4, 5],
-                        help='System number to test (1-5)')
+    parser.add_argument('--system', type=int, choices=list(SYSTEMS),
+                        help='System number to test (1-8)')
     parser.add_argument('--strategy', choices=list(STRATEGY_SLUGS),
                         help='Strategy by name (alias for --system)')
     parser.add_argument('--universe', default='broad',
@@ -485,6 +540,7 @@ def main():
     print(f"\nYour systems need to beat {benchmark_cagr:.2f}% CAGR to outperform.")
     print("="*80)
 
+
     # Resolve --strategy slug into a system number
     if args.strategy and not args.system:
         args.system = STRATEGY_SLUGS[args.strategy]
@@ -492,7 +548,7 @@ def main():
     if args.all:
         # Run all systems
         results = {}
-        for sys_num in [1, 2, 3, 4, 5]:
+        for sys_num in list(SYSTEMS):
             config = SYSTEMS[sys_num]
             metrics = run_simple_backtest(
                 config, symbols, START_DATE, END_DATE,
@@ -500,19 +556,6 @@ def main():
             results[config['name']] = metrics
             print_metrics(config['name'], metrics, benchmark_cagr)
 
-        # Add benchmark to comparison
-        benchmark_row = pd.DataFrame([{
-            'System': 'SPY (Buy & Hold)',
-            'CAGR': benchmark_cagr,
-            'Max DD': 0.0,  # Not calculated for benchmark
-            'Sharpe': 0.0,
-            'Win Rate': 0.0,
-            'Avg R': 0.0,
-            'Trades': 0,
-            'Alpha': 0.0
-        }])
-
-        # Save comparison
         comparison_df = pd.DataFrame([
             {
                 'System': name,
@@ -526,17 +569,12 @@ def main():
             }
             for name, m in results.items()
         ])
-
-        # Combine with benchmark
-        comparison_df = pd.concat([benchmark_row, comparison_df], ignore_index=True)
-
         comparison_file = Path('backtesting/results/comparison.csv')
         comparison_df.to_csv(comparison_file, index=False)
         print(f"\nComparison saved to {comparison_file}")
         print("\n" + comparison_df.to_string(index=False))
 
     elif args.system:
-        # Run single system
         config = SYSTEMS[args.system]
         metrics = run_simple_backtest(
             config, symbols, START_DATE, END_DATE,

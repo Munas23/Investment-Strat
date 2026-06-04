@@ -200,3 +200,5 @@ if __name__ == '__main__':
     test_mark_to_market()
     test_metrics_math()
     test_scorecard_written()
+    print("-" * 50)
+    print("ALL OFFLINE CHECKS PASSED")

@@ -17,6 +17,9 @@ Each system has its own entry logic:
   3 - Qullamaggie: Explosive volume breakout on a momentum day
   4 - Hybrid:    MA trend + 20-day high, adaptive to market
   5 - High Conviction: All Minervini + new 52-week high + top RS
+  6 - VCP:        Full Volatility Contraction Pattern (Stage 2 + ATR squeeze + volume)
+  7 - Conviction: Pure-technical points-based composite (no fundamental gate)
+  8 - 5LC:        5-Level Conviction (conviction points + proximity-to-high gate)
 """
 
 import pandas as pd
@@ -152,7 +155,7 @@ def _day_return(sl: pd.DataFrame) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Per-system entry scoring
+# Per-system entry scoring (original presets, systems 1-5)
 # ---------------------------------------------------------------------------
 
 def _score_system1(sl: pd.DataFrame) -> Optional[int]:
@@ -262,12 +265,139 @@ def _score_system5(sl: pd.DataFrame) -> Optional[int]:
     return 5
 
 
+# ---------------------------------------------------------------------------
+# Real strategy families (systems 6-8)
+# ---------------------------------------------------------------------------
+
+def _conviction_points(sl: pd.DataFrame) -> float:
+    """
+    Shared conviction-points engine used by Conviction (7) and 5LC (8).
+
+    Mirrors the scoring from daily_conviction_scanner.py:
+      Breakout component : 0-30 pts  (20-day Donchian breakout)
+      Volume component   : 0-25 pts  (volume vs 20-day avg)
+      Momentum component : 0-25 pts  (today's % move)
+      Trend bonus        : 0-20 pts  (Stage 2 MA alignment)
+    """
+    points = 0.0
+
+    # Breakout (0-30 pts)
+    if _donchian_breakout(sl, period=20):
+        points += 30
+
+    # Volume surge (0-25 pts)
+    vol = _volume_ratio(sl)
+    if vol >= 3.0:
+        points += 25
+    elif vol >= 2.0:
+        points += 20
+    elif vol >= 1.5:
+        points += 15
+    elif vol >= 1.2:
+        points += 8
+
+    # Momentum / day return (0-25 pts)
+    day_ret = _day_return(sl)
+    if day_ret >= 5.0:
+        points += 25
+    elif day_ret >= 3.0:
+        points += 15
+    elif day_ret >= 1.0:
+        points += 8
+
+    # Trend bonus (0-20 pts)
+    row = sl.iloc[-1]
+    if _stage2_alignment(row):
+        points += 20
+    elif not pd.isna(row.get('ma_200')) and row['close'] > row.get('ma_200', 0):
+        points += 10
+
+    return points
+
+
+def _points_to_level(points: float) -> Optional[int]:
+    """Map raw conviction points (0-100) to levels 1-5."""
+    if points >= 85:
+        return 5
+    elif points >= 70:
+        return 4
+    elif points >= 55:
+        return 3
+    elif points >= 40:
+        return 2
+    elif points >= 25:
+        return 1
+    return None
+
+
+def _score_vcp(sl: pd.DataFrame) -> Optional[int]:
+    """
+    System 6: VCP (Volatility Contraction Pattern)
+    Full Minervini VCP: Stage 2 + progressive ATR contraction + volume
+    drying up in the base, then expanding on the entry day.
+    Tighter proximity-to-high gate than system 1 (within 10%).
+
+    Conviction:
+      5 — volume contracted in base AND today's volume >= 1.5x AND RS > 20
+      4 — volume contracted in base AND today's volume >= 1.2x AND RS > 10
+      3 — ATR contracting + today's volume >= 1.0x + RS > 5
+    """
+    if not _stage2_alignment(sl.iloc[-1]):
+        return None
+    if not _near_52w_high(sl, pct_within=0.10):
+        return None
+    if not _atr_contraction(sl):
+        return None
+
+    # Volume contracting during the base (last 10 days vs prior 20 days)
+    base_vol  = sl['volume'].iloc[-10:-1].mean()
+    prior_vol = sl['volume'].iloc[-30:-10].mean()
+    vol_contracting = (base_vol < prior_vol * 0.85) if prior_vol > 0 else False
+
+    vol_today = _volume_ratio(sl)
+    rs = _rs_rank(sl)
+
+    if vol_contracting and vol_today >= 1.5 and rs > 20:
+        return 5
+    elif vol_contracting and vol_today >= 1.2 and rs > 10:
+        return 4
+    elif vol_today >= 1.0 and rs > 5:
+        return 3
+    return None
+
+
+def _score_conviction(sl: pd.DataFrame) -> Optional[int]:
+    """
+    System 7: Conviction (pure technical)
+    Points-based composite: breakout + volume + momentum + trend.
+    No fundamental gate — works on the raw universe.
+    Maps 25-100 pts to conviction levels 1-5.
+    """
+    return _points_to_level(_conviction_points(sl))
+
+
+def _score_5lc(sl: pd.DataFrame) -> Optional[int]:
+    """
+    System 8: 5LC (5-Level Conviction)
+    Same conviction-points engine as system 7, with an additional
+    proximity-to-52w-high gate (within 25%).  Ensures entries are in
+    healthy uptrend territory; quality was already filtered by the
+    upstream quarterly fundamental screen.
+    """
+    if not _near_52w_high(sl, pct_within=0.25):
+        return None
+    return _points_to_level(_conviction_points(sl))
+
+
 _SCORERS = {
     1: _score_system1,
     2: _score_system2,
     3: _score_system3,
     4: _score_system4,
     5: _score_system5,
+    6: _score_vcp,
+    7: _score_conviction,
+    8: _score_5lc,
 }
 
 
@@ -290,7 +420,7 @@ def scan_universe(
         universe:       Symbols that passed this quarter's fundamental screen
         price_data:     Pre-loaded {symbol -> enriched DataFrame}
         date:           Today's date (tz-naive Timestamp)
-        system_id:      1–5 selects entry logic
+        system_id:      1-8 selects entry logic
         min_conviction: Minimum conviction level to include
         market_health:  Used externally to scale position size; not a filter here
 
