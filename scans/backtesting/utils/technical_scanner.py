@@ -32,16 +32,7 @@ from typing import Dict, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 
 def get_market_health(spy_df: pd.DataFrame, date: pd.Timestamp) -> str:
-    """
-    Classify market regime from SPY moving averages.
-
-    Args:
-        spy_df: SPY price DataFrame with ma_50, ma_200 columns (or calculated here)
-        date:   Current date (tz-naive)
-
-    Returns:
-        One of: 'bull', 'uptrend', 'neutral', 'choppy', 'bear'
-    """
+    """Classify market regime from SPY moving averages."""
     available = spy_df.index[spy_df.index <= date]
     if len(available) < 200:
         return 'neutral'
@@ -49,7 +40,6 @@ def get_market_health(spy_df: pd.DataFrame, date: pd.Timestamp) -> str:
     row = spy_df.loc[available[-1]]
     price = row['close']
 
-    # Calculate MAs if not pre-computed
     ma50  = row.get('ma_50')
     ma200 = row.get('ma_200')
     if pd.isna(ma50) or pd.isna(ma200):
@@ -109,13 +99,18 @@ def _volume_ratio(sl: pd.DataFrame, window: int = 20) -> float:
     return sl['volume'].iloc[-1] / avg_vol
 
 
-def _atr_contraction(sl: pd.DataFrame) -> bool:
-    """ATR over last 5 days is lower than ATR over prior 15 days (VCP proxy)."""
+def _atr_contraction(sl: pd.DataFrame, multiplier: float = 0.85) -> bool:
+    """ATR over last 5 days is lower than ATR over prior 15 days (VCP proxy).
+
+    `multiplier` sets how much tighter recent ATR must be vs the prior window.
+    Lower = stricter. VCP (system 6) passes a looser value than the default
+    because the 0.85 gate starved it of signals in the bake-off.
+    """
     if 'atr' not in sl.columns or len(sl) < 25:
         return False
     recent_atr = sl['atr'].iloc[-5:].mean()
     prior_atr  = sl['atr'].iloc[-20:-5].mean()
-    return recent_atr < prior_atr * 0.85 if prior_atr > 0 else False
+    return recent_atr < prior_atr * multiplier if prior_atr > 0 else False
 
 
 def _donchian_breakout(sl: pd.DataFrame, period: int = 20) -> bool:
@@ -137,10 +132,7 @@ def _new_52w_high(sl: pd.DataFrame) -> bool:
 
 
 def _rs_rank(sl: pd.DataFrame) -> float:
-    """
-    Relative strength: stock 3-month return vs SPY 3-month return.
-    Returns a score; positive means outperforming, >20 means strong RS.
-    """
+    """Relative strength: stock 3-month return vs SPY 3-month return."""
     rs = sl['relative_strength'].iloc[-1] if 'relative_strength' in sl.columns else 0
     return 0 if pd.isna(rs) else rs
 
@@ -159,37 +151,26 @@ def _day_return(sl: pd.DataFrame) -> float:
 # ---------------------------------------------------------------------------
 
 def _score_system1(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 1: Minervini Conservative
-    Requires Stage 2 alignment + near 52-week high + ATR contraction (VCP).
-    Conviction 4 baseline; 5 if also RS outperforming and volume expanding.
-    """
+    """System 1: Minervini Conservative."""
     if not _stage2_alignment(sl.iloc[-1]):
         return None
-    if not _near_52w_high(sl, pct_within=0.15):     # Within 15% of 52w high
+    if not _near_52w_high(sl, pct_within=0.15):
         return None
 
     conviction = 4
-
-    # Upgrade to 5 if ATR contracting AND RS positive AND volume expanding
     if _atr_contraction(sl) and _rs_rank(sl) > 15 and _volume_ratio(sl) > 1.2:
         conviction = 5
-
     return conviction
 
 
 def _score_system2(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 2: Turtle ATR-Based
-    Classic Donchian 20-day breakout. Price must be above 50 MA.
-    """
+    """System 2: Turtle ATR-Based (Donchian 20-day breakout)."""
     row = sl.iloc[-1]
     if pd.isna(row.get('ma_50')) or row['close'] < row['ma_50']:
         return None
     if not _donchian_breakout(sl, period=20):
         return None
 
-    # MA alignment and RS improve conviction
     above_200 = not pd.isna(row.get('ma_200')) and row['close'] > row['ma_200']
     rs = _rs_rank(sl)
     vol = _volume_ratio(sl)
@@ -202,10 +183,7 @@ def _score_system2(sl: pd.DataFrame) -> Optional[int]:
 
 
 def _score_system3(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 3: Qullamaggie Aggressive
-    Requires explosive volume (2x+) on a strong up day (3%+) breaking to new highs.
-    """
+    """System 3: Qullamaggie Aggressive (explosive volume breakout)."""
     if not _donchian_breakout(sl, period=20):
         return None
     if not _near_52w_high(sl, pct_within=0.10):
@@ -215,7 +193,7 @@ def _score_system3(sl: pd.DataFrame) -> Optional[int]:
     vol_ratio = _volume_ratio(sl)
 
     if day_ret < 3.0 or vol_ratio < 1.5:
-        return None                 # Not explosive enough
+        return None
 
     if vol_ratio >= 3.0 and day_ret >= 8.0:
         return 5
@@ -225,11 +203,7 @@ def _score_system3(sl: pd.DataFrame) -> Optional[int]:
 
 
 def _score_system4(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 4: Hybrid Balanced
-    Requires price above 50 MA + 20-day breakout.
-    Upgrades conviction with MA alignment and RS.
-    """
+    """System 4: Hybrid Balanced."""
     row = sl.iloc[-1]
     if pd.isna(row.get('ma_50')) or row['close'] < row['ma_50']:
         return None
@@ -244,23 +218,18 @@ def _score_system4(sl: pd.DataFrame) -> Optional[int]:
         conviction = 4
     else:
         conviction = 3
-
     return conviction
 
 
 def _score_system5(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 5: High Conviction Only
-    Strictest filter: Stage 2 + new 52-week high today + strong RS.
-    Always returns 5 or None.
-    """
+    """System 5: High Conviction Only."""
     if not _stage2_alignment(sl.iloc[-1]):
         return None
     if not _new_52w_high(sl):
         return None
-    if _rs_rank(sl) < 20:           # Must be a strong RS leader
+    if _rs_rank(sl) < 20:
         return None
-    if _volume_ratio(sl) < 1.2:     # Some volume expansion required
+    if _volume_ratio(sl) < 1.2:
         return None
     return 5
 
@@ -270,22 +239,12 @@ def _score_system5(sl: pd.DataFrame) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 def _conviction_points(sl: pd.DataFrame) -> float:
-    """
-    Shared conviction-points engine used by Conviction (7) and 5LC (8).
-
-    Mirrors the scoring from daily_conviction_scanner.py:
-      Breakout component : 0-30 pts  (20-day Donchian breakout)
-      Volume component   : 0-25 pts  (volume vs 20-day avg)
-      Momentum component : 0-25 pts  (today's % move)
-      Trend bonus        : 0-20 pts  (Stage 2 MA alignment)
-    """
+    """Shared conviction-points engine used by Conviction (7) and 5LC (8)."""
     points = 0.0
 
-    # Breakout (0-30 pts)
     if _donchian_breakout(sl, period=20):
         points += 30
 
-    # Volume surge (0-25 pts)
     vol = _volume_ratio(sl)
     if vol >= 3.0:
         points += 25
@@ -296,7 +255,6 @@ def _conviction_points(sl: pd.DataFrame) -> float:
     elif vol >= 1.2:
         points += 8
 
-    # Momentum / day return (0-25 pts)
     day_ret = _day_return(sl)
     if day_ret >= 5.0:
         points += 25
@@ -305,7 +263,6 @@ def _conviction_points(sl: pd.DataFrame) -> float:
     elif day_ret >= 1.0:
         points += 8
 
-    # Trend bonus (0-20 pts)
     row = sl.iloc[-1]
     if _stage2_alignment(row):
         points += 20
@@ -335,24 +292,26 @@ def _score_vcp(sl: pd.DataFrame) -> Optional[int]:
     System 6: VCP (Volatility Contraction Pattern)
     Full Minervini VCP: Stage 2 + progressive ATR contraction + volume
     drying up in the base, then expanding on the entry day.
-    Tighter proximity-to-high gate than system 1 (within 10%).
+    Proximity-to-high gate within 15% (recalibrated from 10% - the tighter
+    gate combined with the ATR/volume filters left VCP starved of trades in
+    the Phase 2 bake-off).
 
     Conviction:
-      5 — volume contracted in base AND today's volume >= 1.5x AND RS > 20
-      4 — volume contracted in base AND today's volume >= 1.2x AND RS > 10
-      3 — ATR contracting + today's volume >= 1.0x + RS > 5
+      5 - volume contracted in base AND today's volume >= 1.5x AND RS > 20
+      4 - volume contracted in base AND today's volume >= 1.2x AND RS > 10
+      3 - ATR contracting + today's volume >= 1.0x + RS > 0
     """
     if not _stage2_alignment(sl.iloc[-1]):
         return None
-    if not _near_52w_high(sl, pct_within=0.10):
+    if not _near_52w_high(sl, pct_within=0.15):
         return None
-    if not _atr_contraction(sl):
+    # Looser contraction gate (0.92 vs default 0.85) so shallower VCP bases qualify
+    if not _atr_contraction(sl, multiplier=0.92):
         return None
 
-    # Volume contracting during the base (last 10 days vs prior 20 days)
     base_vol  = sl['volume'].iloc[-10:-1].mean()
     prior_vol = sl['volume'].iloc[-30:-10].mean()
-    vol_contracting = (base_vol < prior_vol * 0.85) if prior_vol > 0 else False
+    vol_contracting = (base_vol < prior_vol * 0.92) if prior_vol > 0 else False
 
     vol_today = _volume_ratio(sl)
     rs = _rs_rank(sl)
@@ -361,29 +320,18 @@ def _score_vcp(sl: pd.DataFrame) -> Optional[int]:
         return 5
     elif vol_contracting and vol_today >= 1.2 and rs > 10:
         return 4
-    elif vol_today >= 1.0 and rs > 5:
+    elif vol_today >= 1.0 and rs > 0:
         return 3
     return None
 
 
 def _score_conviction(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 7: Conviction (pure technical)
-    Points-based composite: breakout + volume + momentum + trend.
-    No fundamental gate — works on the raw universe.
-    Maps 25-100 pts to conviction levels 1-5.
-    """
+    """System 7: Conviction (pure technical) - points composite, no fundamental gate."""
     return _points_to_level(_conviction_points(sl))
 
 
 def _score_5lc(sl: pd.DataFrame) -> Optional[int]:
-    """
-    System 8: 5LC (5-Level Conviction)
-    Same conviction-points engine as system 7, with an additional
-    proximity-to-52w-high gate (within 25%).  Ensures entries are in
-    healthy uptrend territory; quality was already filtered by the
-    upstream quarterly fundamental screen.
-    """
+    """System 8: 5LC - conviction points + proximity-to-52w-high gate (within 25%)."""
     if not _near_52w_high(sl, pct_within=0.25):
         return None
     return _points_to_level(_conviction_points(sl))
@@ -413,20 +361,7 @@ def scan_universe(
     min_conviction: int = 3,
     market_health: str = 'neutral',
 ) -> Dict[str, int]:
-    """
-    Scan every stock in the fundamental universe for today's technical signal.
-
-    Args:
-        universe:       Symbols that passed this quarter's fundamental screen
-        price_data:     Pre-loaded {symbol -> enriched DataFrame}
-        date:           Today's date (tz-naive Timestamp)
-        system_id:      1-8 selects entry logic
-        min_conviction: Minimum conviction level to include
-        market_health:  Used externally to scale position size; not a filter here
-
-    Returns:
-        {symbol: conviction_level} for every stock with a valid signal
-    """
+    """Scan every stock in the fundamental universe for today's technical signal."""
     scorer = _SCORERS.get(system_id)
     if scorer is None:
         return {}
@@ -441,7 +376,6 @@ def scan_universe(
         if sl is None or len(sl) < 60:
             continue
 
-        # Basic liquidity gate (re-checked daily in case volume dried up)
         if sl['volume'].iloc[-1] < 200_000:
             continue
         if sl['close'].iloc[-1] < 5:

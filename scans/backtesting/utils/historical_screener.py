@@ -35,27 +35,89 @@ FUND_CACHE_DIR   = CACHE_DIR / 'fundamentals'
 FUND_CACHE_MAX_AGE_DAYS = 30
 
 
+# ---------------------------------------------------------------------------
+# Market-aware screening thresholds
+# ---------------------------------------------------------------------------
+# The original thresholds were calibrated for large US universes. Applied
+# unchanged to the ASX they qualified only 2-8 stocks per quarter, because
+# AU mid-caps trade at lower dollar volumes and absolute prices than US
+# large-caps. Each market gets its own profile; values are in the market's
+# own listing currency (USD for us, AUD for au, GBP for uk).
+MARKET_THRESHOLDS = {
+    'us': {
+        'min_ddv':          20_000_000,   # min daily dollar volume
+        'min_shares':       500_000,      # min avg daily share volume
+        'min_price':        5,            # price floor
+        'min_market_cap':   300_000_000,  # min market cap
+        'min_gain_3m':      20,           # min 3-month momentum (%)
+        'min_rev_growth':   10,           # min YoY quarterly revenue growth (%)
+        'min_gross_margin': 20,           # min gross margin (%)
+    },
+    # AU: looser absolutes so a meaningful pool clears each quarter.
+    'au': {
+        'min_ddv':          3_000_000,
+        'min_shares':       200_000,
+        'min_price':        0.50,
+        'min_market_cap':   75_000_000,
+        'min_gain_3m':      12,
+        'min_rev_growth':   5,
+        'min_gross_margin': 12,
+    },
+    # UK: between US and AU.
+    'uk': {
+        'min_ddv':          5_000_000,
+        'min_shares':       300_000,
+        'min_price':        1,
+        'min_market_cap':   150_000_000,
+        'min_gain_3m':      15,
+        'min_rev_growth':   8,
+        'min_gross_margin': 15,
+    },
+}
+
+
+def detect_market(symbols: List[str]) -> str:
+    """Infer the market from ticker suffixes (.AX -> au, .L -> uk, else us)."""
+    if not symbols:
+        return 'us'
+    ax = sum(1 for s in symbols if str(s).upper().endswith('.AX'))
+    lon = sum(1 for s in symbols if str(s).upper().endswith('.L'))
+    if ax >= len(symbols) / 2:
+        return 'au'
+    if lon >= len(symbols) / 2:
+        return 'uk'
+    return 'us'
+
+
 class HistoricalScreener:
     """
     Run fundamental and liquidity screening as of historical dates.
     Prevents lookahead bias in backtesting.
 
     Data is pre-fetched ONCE per symbol for the full backtest period,
-    then sliced per quarter in memory — much faster than per-quarter API calls.
+    then sliced per quarter in memory.
     """
 
-    def __init__(self, symbols: List[str]):
+    def __init__(self, symbols: List[str], market: Optional[str] = None):
         """
         Initialize historical screener.
 
         Args:
             symbols: List of stock symbols to screen
+            market:  'us' | 'au' | 'uk'. If None, inferred from ticker
+                     suffixes (.AX -> au, .L -> uk, else us). Selects the
+                     liquidity/fundamental threshold profile.
         """
         self.symbols = symbols
-        self._price_cache: Dict[str, pd.DataFrame] = {}          # symbol -> full OHLCV history
-        self._info_cache: Dict[str, dict] = {}                   # symbol -> yfinance fast_info
-        self._quarterly_income: Dict[str, pd.DataFrame] = {}     # symbol -> quarterly income stmt
-        self._quarterly_balance: Dict[str, pd.DataFrame] = {}    # symbol -> quarterly balance sheet
+        self.market = (market or detect_market(symbols)).lower()
+        self.thresholds = MARKET_THRESHOLDS.get(self.market, MARKET_THRESHOLDS['us'])
+        print(f"  Screener market profile: {self.market} "
+              f"(min DDV {self.thresholds['min_ddv']:,}, "
+              f"min cap {self.thresholds['min_market_cap']:,})")
+        self._price_cache: Dict[str, pd.DataFrame] = {}
+        self._info_cache: Dict[str, dict] = {}
+        self._quarterly_income: Dict[str, pd.DataFrame] = {}
+        self._quarterly_balance: Dict[str, pd.DataFrame] = {}
 
 
     # ------------------------------------------------------------------
@@ -68,37 +130,20 @@ class HistoricalScreener:
         end_date: str,
         rebalance_frequency: str = 'Q'
     ) -> Dict[str, List[str]]:
-        """
-        Run screening at regular intervals (quarterly by default).
-
-        Downloads all symbol data ONCE, then applies filters per quarter
-        using only data available at each historical date.
-
-        Args:
-            start_date: Start date (YYYY-MM-DD)
-            end_date: End date (YYYY-MM-DD)
-            rebalance_frequency: 'Q'=quarterly, 'M'=monthly
-
-        Returns:
-            Dict mapping date-string -> list of qualified symbols
-        """
+        """Run screening at regular intervals (quarterly by default)."""
         print(f"\nRunning historical screening from {start_date} to {end_date}")
         print(f"Rebalance frequency: {rebalance_frequency}")
 
-        # Step 1: Pre-fetch ALL data once (the key optimization)
         self._prefetch_all_data(start_date, end_date)
 
-        # Step 2: Generate rebalance dates
         rebalance_dates = pd.date_range(
             start=start_date,
             end=end_date,
-            freq=rebalance_frequency + 'S'  # QS = quarter start, MS = month start
+            freq=rebalance_frequency + 'S'
         )
         print(f"\nRebalance dates: {len(rebalance_dates)}")
 
-        # Step 3: Screen each quarter using cached data (no API calls)
         qualified_universe = {}
-
         for date in rebalance_dates:
             print(f"\nScreening as of {date.strftime('%Y-%m-%d')}...", end=' ', flush=True)
             qualified_symbols = self._screen_as_of_date(date)
@@ -113,26 +158,13 @@ class HistoricalScreener:
         date: pd.Timestamp,
         quarterly_results: Dict[str, List[str]]
     ) -> List[str]:
-        """
-        Get the qualified universe for a specific trading date.
-
-        Uses the most recent quarterly screening before this date.
-
-        Args:
-            date: Date to get universe for
-            quarterly_results: Dict from run_quarterly_screening()
-
-        Returns:
-            List of qualified symbols for this date
-        """
+        """Get the qualified universe for a specific trading date."""
         screening_dates = sorted([pd.to_datetime(d) for d in quarterly_results.keys()])
         valid_dates = [d for d in screening_dates if d <= date]
-
         if not valid_dates:
             most_recent = screening_dates[0]
         else:
             most_recent = valid_dates[-1]
-
         return quarterly_results[most_recent.strftime('%Y-%m-%d')]
 
 
@@ -141,14 +173,7 @@ class HistoricalScreener:
     # ------------------------------------------------------------------
 
     def _prefetch_all_data(self, start_date: str, end_date: str) -> None:
-        """
-        Download full-period OHLCV + quarterly financials for ALL symbols.
-
-        Disk cache (backtesting/cache/) is checked first:
-          - Price parquet:   reused if it covers buffer_start -> end_date
-          - Fundamentals:    reused if file is < FUND_CACHE_MAX_AGE_DAYS old
-        Only symbols with missing/stale cache are downloaded from yfinance.
-        """
+        """Download full-period OHLCV + quarterly financials for ALL symbols."""
         if self._price_cache:
             print("  (Using in-memory price cache)")
             return
@@ -164,7 +189,6 @@ class HistoricalScreener:
         print(f"  Date range: {buffer_start} to {end_date} (includes 400-day buffer)")
         print(f"  Disk cache: {CACHE_DIR}")
 
-        # ── Step 1: Load what we already have on disk ──────────────────────
         need_download = []
         loaded_from_cache = 0
 
@@ -174,7 +198,6 @@ class HistoricalScreener:
                 try:
                     with open(pfile, 'rb') as f:
                         df = pickle.load(f)
-                    # Validate the cached range covers what we need
                     if df.index.tz is not None:
                         df.index = df.index.tz_localize(None)
                     if df.index.min() <= buffer_start_dt + timedelta(days=10) and df.index.max() >= end_dt - timedelta(days=10):
@@ -188,7 +211,6 @@ class HistoricalScreener:
         print(f"  Loaded {loaded_from_cache} symbols from disk cache")
         print(f"  Need to download: {len(need_download)} symbols")
 
-        # ── Step 2: Download missing symbols in batches ─────────────────────
         if need_download:
             batch_size   = 20
             total_batches = (len(need_download) + batch_size - 1) // batch_size
@@ -237,7 +259,6 @@ class HistoricalScreener:
 
         print(f"  Price data ready for {len(self._price_cache)} / {len(self.symbols)} symbols")
 
-        # ── Step 3: Load or fetch quarterly fundamentals ────────────────────
         print(f"  Loading quarterly financials...", flush=True)
         fund_from_cache = 0
         fund_downloaded = 0
@@ -247,19 +268,16 @@ class HistoricalScreener:
             income_file  = FUND_CACHE_DIR / f"{symbol}_income.pkl"
             balance_file = FUND_CACHE_DIR / f"{symbol}_balance.pkl"
 
-            # fast_info is always fetched live (tiny / no meaningful cache benefit)
             try:
                 self._info_cache[symbol] = yf.Ticker(symbol).fast_info
             except Exception:
                 self._info_cache[symbol] = {}
 
-            # Income statement
             if income_file.exists() and datetime.fromtimestamp(income_file.stat().st_mtime) > cutoff:
                 try:
                     with open(income_file, 'rb') as f:
                         self._quarterly_income[symbol] = pickle.load(f)
                     fund_from_cache += 1
-                    # Also try to load balance from cache
                     if balance_file.exists() and datetime.fromtimestamp(balance_file.stat().st_mtime) > cutoff:
                         with open(balance_file, 'rb') as f:
                             self._quarterly_balance[symbol] = pickle.load(f)
@@ -267,7 +285,6 @@ class HistoricalScreener:
                 except Exception:
                     pass
 
-            # Download and cache fundamentals
             ticker = yf.Ticker(symbol)
             try:
                 qi = ticker.quarterly_income_stmt
@@ -310,7 +327,6 @@ class HistoricalScreener:
     def _extract_ticker(raw: pd.DataFrame, symbol: str) -> Optional[pd.DataFrame]:
         """Extract a single ticker's data from a multi-ticker yf.download result."""
         try:
-            # MultiIndex: (metric, symbol)
             lvl1 = raw.columns.get_level_values(1)
             if symbol not in lvl1:
                 return None
@@ -329,44 +345,32 @@ class HistoricalScreener:
     # ------------------------------------------------------------------
 
     def _screen_as_of_date(self, as_of_date: pd.Timestamp) -> List[str]:
-        """
-        Screen stocks using only data available up to as_of_date.
-
-        Slices cached price data — no API calls.
-
-        Args:
-            as_of_date: Screening date (tz-naive Timestamp)
-
-        Returns:
-            List of symbols that pass all filters
-        """
-        # Use data from the prior year up to the day before screening
+        """Screen stocks using only data available up to as_of_date."""
         data_end = as_of_date - timedelta(days=1)
-        data_start = as_of_date - timedelta(days=400)  # ~13 months lookback
+        data_start = as_of_date - timedelta(days=400)
 
         qualified = []
 
         for symbol, full_df in self._price_cache.items():
             try:
-                # Slice to the lookback window (data available at as_of_date)
                 mask = (full_df.index >= data_start) & (full_df.index <= data_end)
                 df = full_df.loc[mask]
 
                 if df.empty or len(df) < 60:
                     continue
 
+                t = self.thresholds   # market-aware threshold profile
+
                 # --- Liquidity filters ---
-                recent_vol = df['volume'].tail(63).mean()   # 3-month avg volume
+                recent_vol = df['volume'].tail(63).mean()
                 recent_price = df['close'].iloc[-1]
                 ddv = recent_vol * recent_price
 
-                if ddv < 20_000_000:        # $20M minimum DDV
+                if ddv < t['min_ddv']:
                     continue
-                if recent_vol < 500_000:    # 500K shares minimum
+                if recent_vol < t['min_shares']:
                     continue
-
-                # Price floor
-                if recent_price < 5:
+                if recent_price < t['min_price']:
                     continue
 
                 # --- Momentum filter (3-month gain) ---
@@ -376,42 +380,32 @@ class HistoricalScreener:
                     price_3m_ago = df['close'].iloc[0]
 
                 gain_3m = ((recent_price - price_3m_ago) / price_3m_ago) * 100
-                if gain_3m < 20:            # Minimum 20% gain in 3 months
+                if gain_3m < t['min_gain_3m']:
                     continue
 
                 # --- Fundamental filters (point-in-time quarterly data) ---
                 info = self._info_cache.get(symbol, {})
-
-                # Market cap from fast_info (approximation; float shares * current price)
                 market_cap = getattr(info, 'market_cap', None) or 0
-                if market_cap < 300_000_000:    # $300M minimum (relaxed slightly)
+                if market_cap < t['min_market_cap']:
                     continue
 
-                # Quarterly income statement — only use quarters BEFORE as_of_date
                 qi = self._quarterly_income.get(symbol)
                 if qi is not None and not qi.empty:
-                    # Strip timezone from quarterly index for comparison
                     qi_idx = qi.index
                     if hasattr(qi_idx, 'tz') and qi_idx.tz is not None:
                         qi_idx = qi_idx.tz_localize(None)
-                    # Select quarters that had already been reported by as_of_date
-                    # (use quarter end date as proxy; earnings typically reported 4-6 weeks later,
-                    #  but we add a 45-day lag to be conservative)
                     available_quarters = qi.loc[qi_idx <= (as_of_date - timedelta(days=45))]
 
                     if len(available_quarters) >= 2:
-                        # Revenue growth: most recent quarter vs same quarter prior year
                         rev_col = next((c for c in available_quarters.columns
                                         if 'Total Revenue' in str(c) or 'Revenue' in str(c)), None)
                         if rev_col:
                             rev = available_quarters[rev_col].dropna()
                             if len(rev) >= 5:
-                                # YoY growth: most recent vs 4 quarters ago
                                 rev_growth = (rev.iloc[-1] / rev.iloc[-5] - 1) * 100 if rev.iloc[-5] > 0 else 0
-                                if rev_growth < 10:     # Minimum 10% YoY revenue growth
+                                if rev_growth < t['min_rev_growth']:
                                     continue
 
-                        # Gross profit margin: most recent quarter
                         gp_col = next((c for c in available_quarters.columns
                                        if 'Gross Profit' in str(c)), None)
                         if gp_col and rev_col:
@@ -419,7 +413,7 @@ class HistoricalScreener:
                             rev_latest = available_quarters[rev_col].dropna()
                             if len(gp) >= 1 and len(rev_latest) >= 1 and rev_latest.iloc[-1] > 0:
                                 gp_margin = (gp.iloc[-1] / rev_latest.iloc[-1]) * 100
-                                if gp_margin < 20:      # Minimum 20% gross margin
+                                if gp_margin < t['min_gross_margin']:
                                     continue
 
                 qualified.append(symbol)
@@ -440,19 +434,8 @@ def create_historical_universe(
     end_date: str = '2024-12-31',
     rebalance_frequency: str = 'Q'
 ) -> Dict[str, List[str]]:
-    """
-    Create historical point-in-time universe for backtesting.
-
-    Args:
-        symbols: List of all symbols to consider
-        start_date: Backtest start date
-        end_date: Backtest end date
-        rebalance_frequency: How often to rebalance ('Q' or 'M')
-
-    Returns:
-        Dict mapping date -> list of qualified symbols
-    """
-    screener = HistoricalScreener(symbols)
+    """Create historical point-in-time universe for backtesting."""
+    screener = HistoricalScreener(symbols)  # market auto-detected from ticker suffixes
     return screener.run_quarterly_screening(
         start_date=start_date,
         end_date=end_date,
@@ -460,33 +443,12 @@ def create_historical_universe(
     )
 
 
-# ------------------------------------------------------------------
-# Example / self-test
-# ------------------------------------------------------------------
-
 if __name__ == "__main__":
     test_symbols = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'TSLA', 'AMD', 'META', 'AMZN']
-
     print("Testing Historical Screener (No Lookahead Bias)")
     print("=" * 80)
-
     screener = HistoricalScreener(test_symbols)
-
     universe = screener.run_quarterly_screening(
-        start_date='2023-01-01',
-        end_date='2023-12-31',
-        rebalance_frequency='Q'
-    )
-
-    print("\n" + "=" * 80)
-    print("RESULTS: Quarterly Universe")
-    print("=" * 80)
-
+        start_date='2023-01-01', end_date='2023-12-31', rebalance_frequency='Q')
     for date, syms in sorted(universe.items()):
-        print(f"\n{date}:")
-        print(f"  Qualified: {', '.join(syms) if syms else 'None'}")
-
-    test_date = pd.to_datetime('2023-06-15')
-    qualified = screener.get_universe_for_date(test_date, universe)
-    print(f"\nUniverse for {test_date.strftime('%Y-%m-%d')}: {len(qualified)} stocks")
-    print(f"  {', '.join(qualified)}")
+        print(f"\n{date}:  {', '.join(syms) if syms else 'None'}")

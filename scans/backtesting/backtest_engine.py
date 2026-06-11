@@ -54,6 +54,8 @@ class Trade:
     pnl_percent: Optional[float] = None
     r_multiple: Optional[float] = None
     holding_days: Optional[int] = None
+    # Set True by 'scaled' exit mode once stop is raised to breakeven at target_1
+    scaled_be_set: bool = False
 
 
 @dataclass
@@ -114,7 +116,8 @@ class BacktestEngine:
         end_date: str = '2024-12-31',
         transaction_cost_pct: float = 0.1,
         slippage_pct: float = 0.05,
-        risk_free_rate: float = 3.0
+        risk_free_rate: float = 3.0,
+        exit_method: str = 'scaled',
     ):
         """
         Initialize backtest engine.
@@ -126,6 +129,7 @@ class BacktestEngine:
             transaction_cost_pct: Transaction cost %
             slippage_pct: Slippage %
             risk_free_rate: Annual risk-free rate %
+            exit_method: One of 'scaled', 'time_trail', 'let_run', 'adaptive'
         """
         self.initial_capital = account_size
         self.current_capital = account_size
@@ -134,6 +138,7 @@ class BacktestEngine:
         self.transaction_cost_pct = transaction_cost_pct
         self.slippage_pct = slippage_pct
         self.risk_free_rate = risk_free_rate
+        self.exit_method = exit_method
 
         # Position sizing calculator
         self.position_calculator = PositionSizingCalculator(account_size=account_size)
@@ -467,50 +472,90 @@ class BacktestEngine:
         print(f"  {date.date()} {trade.symbol}: Exited @ ${exit_price:.2f} - {reason} - P&L: ${pnl_dollars:,.0f} ({pnl_percent:.1f}%) = {r_multiple:.2f}R")
 
 
+    def _is_bull_market(self, date: pd.Timestamp) -> bool:
+        """True when SPY is above its 200-day MA on this date."""
+        if self._spy_data is None:
+            return True
+        available = self._spy_data.index[self._spy_data.index <= date]
+        if len(available) < 200:
+            return True
+        row = self._spy_data.loc[available[-1]]
+        ma200 = self._spy_data['close'].loc[:available[-1]].rolling(200).mean().iloc[-1]
+        return float(row['close']) > float(ma200)
+
     def check_exits(self, date: pd.Timestamp, price_data: Dict[str, pd.DataFrame]):
         """
         Check and execute exits for open trades.
 
         Exit hierarchy (checked in order):
-          1. Hard stop loss (original ATR stop)
-          2. Chandelier trailing stop (3 ATR from highest close since entry)
-          3. Profit Target 1 (scaled exit — partial or full depending on config)
+          1. Hard stop loss (original stop_price — may have been raised by 'scaled' mode)
+          2. Chandelier trailing stop (N ATR from highest close since entry;
+             N=2 after 30 days for 'time_trail', else N=3)
+          3. Profit target logic — varies by exit_method:
+               scaled     : target_1 → raise stop to breakeven, let run to target_2/chandelier
+               time_trail : exit fully at target_1 (tighter chandelier handles the rest)
+               let_run    : no profit target check — only stops
+               adaptive   : bull → scaled behaviour, non-bull → let_run behaviour
         """
-        for trade in self.open_trades[:]:  # Copy list to avoid modification during iteration
+        # 'adaptive' resolves once per check_exits call (same SPY state for all trades today)
+        if self.exit_method == 'adaptive':
+            effective_method = 'scaled' if self._is_bull_market(date) else 'let_run'
+        else:
+            effective_method = self.exit_method
+
+        for trade in self.open_trades[:]:  # copy to allow mid-loop removal
             if trade.symbol not in price_data:
                 continue
 
             df = price_data[trade.symbol]
 
-            # Get current price using nearest available date (handles holidays/weekends)
             available = df.index[df.index <= date]
             if available.empty:
                 continue
             current_price = df.loc[available[-1], 'close']
 
-            # 1. Hard stop loss
+            # 1. Hard stop loss (stop_price may have been raised by scaled mode)
             if current_price <= trade.stop_price:
                 self.exit_trade(trade, date, trade.stop_price, 'STOP_LOSS')
                 continue
 
-            # 2. Chandelier trailing stop: highest close since entry − 3 × ATR
+            # 2. Chandelier trailing stop
             entry_dt = pd.to_datetime(trade.entry_date)
             since_entry = df.loc[(df.index >= entry_dt) & (df.index <= date)]
             if not since_entry.empty:
                 highest_close = since_entry['close'].max()
                 current_atr   = df.loc[available[-1], 'atr']
                 if not pd.isna(current_atr) and current_atr > 0:
-                    chandelier_stop = highest_close - (3 * current_atr)
-                    # Only raise the trailing stop (never lower it)
+                    # time_trail tightens the chandelier multiplier after 30 days
+                    holding_days = (date - entry_dt).days
+                    if effective_method == 'time_trail' and holding_days > 30:
+                        chan_mult = 2.0
+                    else:
+                        chan_mult = 3.0
+                    chandelier_stop = highest_close - (chan_mult * current_atr)
                     effective_stop = max(chandelier_stop, trade.stop_price)
                     if current_price <= effective_stop and chandelier_stop > trade.stop_price:
                         self.exit_trade(trade, date, current_price, 'TRAILING_STOP')
                         continue
 
-            # 3. Profit Target 1
-            if current_price >= trade.target_1_price:
-                self.exit_trade(trade, date, current_price, 'PROFIT_TARGET_1')
-                continue
+            # 3. Profit target logic
+            if effective_method == 'let_run':
+                # No profit target — only stops above will exit
+                pass
+
+            elif effective_method == 'scaled':
+                if not trade.scaled_be_set and current_price >= trade.target_1_price:
+                    # First touch of target_1: raise stop to entry (breakeven), let ride
+                    trade.stop_price = trade.entry_price
+                    trade.scaled_be_set = True
+                elif trade.scaled_be_set and current_price >= trade.target_2_price:
+                    self.exit_trade(trade, date, current_price, 'PROFIT_TARGET_2')
+                    continue
+
+            else:  # time_trail or any unknown — exit fully at target_1
+                if current_price >= trade.target_1_price:
+                    self.exit_trade(trade, date, current_price, 'PROFIT_TARGET_1')
+                    continue
 
 
     def _mark_to_market_value(
@@ -593,6 +638,8 @@ class BacktestEngine:
                 return None
 
             df.columns = [col.lower() for col in df.columns]
+            if df.index.tz is not None:
+                df.index = df.index.tz_convert(None).normalize()
             return df
 
         except Exception as e:

@@ -265,8 +265,13 @@ def run_simple_backtest(
     print(f"Base risk: {system_config['base_risk']}%")
 
     # Step 1: Run HISTORICAL SCREENING (quarterly rebalancing)
+    # Market profile drives the liquidity/fundamental thresholds. AU/UK
+    # universes need looser absolutes than the US default, else only a
+    # handful of stocks clear each quarter. Inferred from ticker suffix
+    # if not derivable from the universe label.
+    market = {'asx300': 'au', 'ftse100': 'uk'}.get(universe_label, 'us')
     print("\n*** Running Historical Screening (No Lookahead Bias) ***")
-    screener = HistoricalScreener(symbols)
+    screener = HistoricalScreener(symbols, market=market)
 
     quarterly_universe = screener.run_quarterly_screening(
         start_date=start_date,
@@ -278,7 +283,8 @@ def run_simple_backtest(
     engine = BacktestEngine(
         account_size=2_000_000,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        exit_method=system_config.get('exit_method', 'scaled'),
     )
 
     # Override position calculator parameters

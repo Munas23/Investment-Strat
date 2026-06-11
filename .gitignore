@@ -47,3 +47,17 @@ requirements.lock.txt
 
 # Stray scratch file (created during setup, cannot be deleted over the mount)
 .__write_test__
+_synctest.txt
+
+# Per-run backtest artifacts (equity/metrics/trades dumps).
+# The comparable summary lives in results/scorecard.csv, which IS tracked.
+scans/backtesting/backtesting/results/
+results/_test_scorecard.csv
+scans/backtesting/results/*_equity.csv
+scans/backtesting/results/*_trades.csv
+scans/backtesting/results/*_metrics.json
+scans/backtesting/results/_synthetic_*.csv
+scans/backtesting/results/_test_*.csv
+
+# Live-multi runtime state (position JSON, shared meta) — machine-local
+scans/live_multi/state/
